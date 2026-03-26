@@ -3,9 +3,10 @@ import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 // ══════════════════════════════════════════════════════════════
 // CONFIG & HELPERS
 // ══════════════════════════════════════════════════════════════
-const APP_VERSION = "2.0";
+const APP_VERSION = "2.1";
 const STORAGE_KEY = "611_app_v2";
 const PIN_KEY = "611_pin";
+const API_URL = "https://script.google.com/macros/s/AKfycbyaqs9HJVNN3y7ijleyTV7RWmLJYz1EljhOJpDLydGdKnWzBUF14ezNLpwDOgaRDKCO/exec";
 
 const fmt = (n) => {
   if (n === null || n === undefined || isNaN(n)) return "$0";
@@ -34,19 +35,16 @@ const defaultData = () => ({
   products: [],
   sales: [],
   expenses: [],
-  settings: { bancolombia: 608146, efectivo: 0, apiUrl: "", lastSync: null },
+  settings: { bancolombia: 608146, efectivo: 0, lastSync: null },
 });
 
 // ══════════════════════════════════════════════════════════════
 // GOOGLE SHEETS API LAYER
 // ══════════════════════════════════════════════════════════════
 const SheetsAPI = {
-  baseUrl: "",
-  setUrl(url) { this.baseUrl = url; },
   async call(action, payload = {}) {
-    if (!this.baseUrl) return null;
     try {
-      const res = await fetch(this.baseUrl, {
+      const res = await fetch(API_URL, {
         method: "POST",
         headers: { "Content-Type": "text/plain" },
         body: JSON.stringify({ action, ...payload }),
@@ -58,9 +56,6 @@ const SheetsAPI = {
     }
   },
   async loadAll() { return this.call("loadAll"); },
-  async saveRecord(sheet, record) { return this.call("save", { sheet, record }); },
-  async deleteRecord(sheet, id) { return this.call("delete", { sheet, id }); },
-  async updateRecord(sheet, record) { return this.call("update", { sheet, record }); },
   async syncAll(data) { return this.call("syncAll", { data }); },
 };
 
@@ -195,17 +190,17 @@ const filterByDate = (items, filter, dateKey = "date") => {
 
 // ── Table ──
 const Table = ({ columns, data, onRowClick, maxHeight }) => (
-  <div style={{ overflowX: "auto", border: "1px solid #1a1a1a", borderRadius: 10, maxHeight: maxHeight || "none", overflowY: maxHeight ? "auto" : "visible" }}>
-    <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
+  <div style={{ overflowX: "auto", WebkitOverflowScrolling: "touch", border: "1px solid #1a1a1a", borderRadius: 10, maxHeight: maxHeight || "none", overflowY: maxHeight ? "auto" : "visible" }}>
+    <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12, minWidth: columns.length > 5 ? 600 : "auto" }}>
       <thead style={{ position: maxHeight ? "sticky" : "static", top: 0, background: "#111", zIndex: 2 }}>
-        <tr>{columns.map((c) => <th key={c.key} style={{ padding: "10px 12px", textAlign: c.align || "left", color: "#555", fontWeight: 600, fontSize: 10, textTransform: "uppercase", letterSpacing: 0.8, borderBottom: "1px solid #1a1a1a", whiteSpace: "nowrap" }}>{c.label}</th>)}</tr>
+        <tr>{columns.map((c) => <th key={c.key} style={{ padding: "8px 10px", textAlign: c.align || "left", color: "#555", fontWeight: 600, fontSize: 10, textTransform: "uppercase", letterSpacing: 0.5, borderBottom: "1px solid #1a1a1a", whiteSpace: "nowrap" }}>{c.label}</th>)}</tr>
       </thead>
       <tbody>
         {data.length === 0 ? (
           <tr><td colSpan={columns.length} style={{ padding: 40, textAlign: "center", color: "#333", fontSize: 13 }}>Sin registros</td></tr>
         ) : data.map((row, i) => (
           <tr key={row.id || i} onClick={() => onRowClick?.(row)} style={{ cursor: onRowClick ? "pointer" : "default" }}>
-            {columns.map((c) => <td key={c.key} style={{ padding: "10px 12px", color: "#bbb", textAlign: c.align || "left", whiteSpace: "nowrap", fontVariantNumeric: "tabular-nums", borderBottom: "1px solid #111" }}>{c.render ? c.render(row) : row[c.key]}</td>)}
+            {columns.map((c) => <td key={c.key} style={{ padding: "8px 10px", color: "#bbb", textAlign: c.align || "left", whiteSpace: "nowrap", fontVariantNumeric: "tabular-nums", borderBottom: "1px solid #111", fontSize: 12 }}>{c.render ? c.render(row) : row[c.key]}</td>)}
           </tr>
         ))}
       </tbody>
@@ -931,21 +926,17 @@ const SettingsPage = ({ data, setData }) => {
     r.readAsText(file);
   };
   const syncSheets = async () => {
-    if (!data.settings.apiUrl) { setSyncMsg("Configura la URL del Google Apps Script primero"); return; }
     setSyncing(true); setSyncMsg("Sincronizando...");
-    SheetsAPI.setUrl(data.settings.apiUrl);
     const res = await SheetsAPI.syncAll(data);
-    if (res?.success) { setSyncMsg(`Sincronizado: ${new Date().toLocaleTimeString("es-CO")}`); set("lastSync", new Date().toISOString()); }
-    else setSyncMsg("Error al sincronizar. Verifica la URL.");
+    if (res?.success) { setSyncMsg(`✅ Sincronizado: ${new Date().toLocaleTimeString("es-CO")}`); set("lastSync", new Date().toISOString()); }
+    else setSyncMsg("❌ Error al sincronizar.");
     setSyncing(false);
   };
   const loadFromSheets = async () => {
-    if (!data.settings.apiUrl) { setSyncMsg("Configura la URL primero"); return; }
     setSyncing(true); setSyncMsg("Cargando desde Google Sheets...");
-    SheetsAPI.setUrl(data.settings.apiUrl);
     const res = await SheetsAPI.loadAll();
-    if (res?.success && res.data) { setData((d) => ({ ...res.data, settings: { ...d.settings, ...res.data.settings } })); setSyncMsg("Datos cargados desde Google Sheets"); }
-    else setSyncMsg("Error al cargar. Verifica la URL.");
+    if (res?.success && res.data) { setData((d) => ({ ...res.data, settings: { ...d.settings, ...res.data.settings } })); setSyncMsg("✅ Datos cargados desde Google Sheets"); }
+    else setSyncMsg("❌ Error al cargar.");
     setSyncing(false);
   };
   const changePin = () => {
@@ -966,8 +957,8 @@ const SettingsPage = ({ data, setData }) => {
 
       <div style={{ background: "#111", border: "1px solid #1a1a1a", borderRadius: 14, padding: 18, marginBottom: 16, maxWidth: 500 }}>
         <h3 style={{ ...lbl, marginBottom: 12, fontSize: 12 }}>Google Sheets (Sincronización)</h3>
-        <Input label="URL del Google Apps Script" value={data.settings.apiUrl || ""} onChange={(e) => set("apiUrl", e.target.value)} placeholder="https://script.google.com/macros/s/..." />
-        <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginTop: 4 }}>
+        <p style={{ fontSize: 12, color: "#666", marginBottom: 10 }}>Conectado automáticamente. Los datos se sincronizan cada vez que haces un cambio.</p>
+        <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
           <Btn variant="secondary" small onClick={syncSheets} disabled={syncing}><Icon name="sync" size={14} /> Enviar a Sheets</Btn>
           <Btn variant="secondary" small onClick={loadFromSheets} disabled={syncing}><Icon name="download" size={14} /> Cargar desde Sheets</Btn>
         </div>
@@ -1019,36 +1010,54 @@ export default function App() {
   const [authed, setAuthed] = useState(false);
   const [page, setPage] = useState("dashboard");
   const [data, setData] = useState(defaultData());
+  const [moreMenu, setMoreMenu] = useState(false);
   const [loaded, setLoaded] = useState(false);
+  const [syncStatus, setSyncStatus] = useState("loading");
 
-  // Load data from persistent storage
+  // Load data: try Google Sheets first, fallback to local
   useEffect(() => {
     (async () => {
+      setSyncStatus("syncing");
+      try {
+        const sheetsRes = await SheetsAPI.loadAll();
+        if (sheetsRes?.success && sheetsRes.data) {
+          const sd = sheetsRes.data;
+          if (sd.sales?.length > 0 || sd.products?.length > 0 || sd.expenses?.length > 0) {
+            setData((prev) => ({ ...sd, settings: { ...prev.settings, ...sd.settings, lastSync: new Date().toISOString() } }));
+            setSyncStatus("synced");
+            setLoaded(true);
+            return;
+          }
+        }
+      } catch {}
+      // Fallback to local storage
       try {
         const r = await window.storage.get(STORAGE_KEY);
         if (r?.value) setData(JSON.parse(r.value));
       } catch {}
+      setSyncStatus("local");
       setLoaded(true);
     })();
   }, []);
 
-  // Save data to persistent storage on every change
+  // Save to local storage on every change
   useEffect(() => {
     if (!loaded) return;
     (async () => { try { await window.storage.set(STORAGE_KEY, JSON.stringify(data)); } catch {} })();
   }, [data, loaded]);
 
-  // Auto-sync to Google Sheets on data change (if configured)
+  // Auto-sync to Google Sheets 3s after any change
   useEffect(() => {
-    if (!loaded || !data.settings.apiUrl) return;
+    if (!loaded) return;
     const t = setTimeout(() => {
-      SheetsAPI.setUrl(data.settings.apiUrl);
-      SheetsAPI.syncAll(data).catch(() => {});
+      SheetsAPI.syncAll(data).then((res) => {
+        if (res?.success) setSyncStatus("synced");
+      }).catch(() => {});
     }, 3000);
     return () => clearTimeout(t);
   }, [data, loaded]);
 
-  const goTo = useCallback((p) => { setPage(p); window.scrollTo(0, 0); }, []);
+  const goTo = useCallback((p) => { setPage(p); setMoreMenu(false); window.scrollTo(0, 0); }, []);
 
   const renderPage = () => {
     switch (page) {
@@ -1068,7 +1077,7 @@ export default function App() {
     <div style={{ minHeight: "100vh", background: "#0a0a0a", display: "flex", alignItems: "center", justifyContent: "center", fontFamily: "'DM Sans', sans-serif" }}>
       <div style={{ textAlign: "center" }}>
         <div style={{ fontSize: 40, fontWeight: 900, color: "#fff", letterSpacing: -3 }}>611</div>
-        <div style={{ color: "#333", fontSize: 12, marginTop: 8 }}>Cargando...</div>
+        <div style={{ color: "#555", fontSize: 11, marginTop: 10 }}>{syncStatus === "syncing" ? "Sincronizando con Google Sheets..." : "Cargando..."}</div>
       </div>
     </div>
   );
@@ -1093,7 +1102,10 @@ export default function App() {
         @media (max-width: 768px) {
           .desktop-sidebar { display: none !important; }
           .bottom-nav { display: flex !important; }
-          .main-area { margin-left: 0 !important; padding: 16px !important; padding-bottom: 80px !important; }
+          .main-area { margin-left: 0 !important; padding: 12px !important; padding-bottom: 80px !important; }
+          table { font-size: 11px !important; }
+          table th, table td { padding: 6px 8px !important; }
+          h1 { font-size: 20px !important; }
         }
       `}</style>
 
@@ -1121,11 +1133,23 @@ export default function App() {
             <span>{n.label}</span>
           </button>
         ))}
-        <button onClick={() => goTo(page === "settings" ? "dashboard" : ["bank", "reports", "settings"].find((p) => p !== page) ? "bank" : "bank")} style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 2, background: "none", border: "none", color: ["bank", "reports", "settings"].includes(page) ? "#fff" : "#444", cursor: "pointer", padding: "4px 8px", fontSize: 10 }}>
+        <button onClick={() => setMoreMenu(!moreMenu)} style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 2, background: "none", border: "none", color: ["bank", "reports", "settings"].includes(page) ? "#fff" : "#444", cursor: "pointer", padding: "4px 8px", fontSize: 10 }}>
           <Icon name="chart" size={20} />
           <span>Más</span>
         </button>
       </div>
+
+      {/* ── Mobile "Más" Menu ── */}
+      {moreMenu && <>
+        <div className="bottom-nav" onClick={() => setMoreMenu(false)} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)", zIndex: 55, display: "block" }} />
+        <div className="bottom-nav" style={{ position: "fixed", bottom: 60, right: 12, background: "#1a1a1a", border: "1px solid #2a2a2a", borderRadius: 12, padding: 6, zIndex: 60, display: "block", minWidth: 160 }}>
+          {[{ id: "bank", label: "Bancos", icon: "bank" }, { id: "reports", label: "Reportes", icon: "chart" }, { id: "settings", label: "Ajustes", icon: "gear" }].map((n) => (
+            <button key={n.id} onClick={() => goTo(n.id)} style={{ display: "flex", alignItems: "center", gap: 10, width: "100%", padding: "12px 14px", background: page === n.id ? "#222" : "transparent", border: "none", borderRadius: 8, color: page === n.id ? "#fff" : "#aaa", fontSize: 14, cursor: "pointer", fontWeight: page === n.id ? 600 : 400 }}>
+              <Icon name={n.icon} size={18} /> {n.label}
+            </button>
+          ))}
+        </div>
+      </>}
 
       {/* ── Main Content ── */}
       <div className="main-area" style={{ flex: 1, minHeight: "100vh" }}>
